@@ -1,145 +1,59 @@
-# ─────────────────────────────────────────────────────────────
-#  Zeneipari állásfigyelő – beállítások
-#  Ezt a fájlt bátran szerkesztheted közvetlenül a GitHubon.
-# ─────────────────────────────────────────────────────────────
-#
-#  Cégek mezői:
-#    name:        a cég neve (ezzel keres a LinkedInen is)
-#    site:        a főoldal – a program innen keresi meg az állásoldalt
-#    careers_url: (opcionális) ha tudod a pontos állásoldalt, írd ide,
-#                 akkor nem kell keresgélnie
-#    linkedin:    false, ha nem akarod, hogy LinkedInen rákeressen
-#
-#  Új cég felvétele: másold le egy meglévő blokkot, és írd át.
+name: Heti zeneipari állásfigyelő
 
-companies:
-  # ── Fesztiválok ──
-  - { name: "Sziget", site: "https://szigetfestival.com/hu" }
-  - { name: "VOLT Fesztivál", site: "https://volt.hu" }
-  - { name: "Balaton Sound", site: "https://balatonsound.com" }
-  - { name: "EFOTT", site: "https://efott.hu" }
-  - { name: "Strand Fesztivál", site: "https://strandfesztival.com" }
-  - { name: "Campus Fesztivál", site: "https://campusfesztival.hu" }
-  - { name: "FEZEN", site: "https://fezen.hu" }
-  - { name: "Fishing on Orfű", site: "https://fishingonorfu.hu" }
-  - { name: "Bánkitó", site: "https://bankito.hu" }
-  - { name: "Kolorádó Fesztivál", site: "https://koloradofesztival.hu" }
-  - { name: "Művészetek Völgye", site: "https://muveszetekvolgye.hu" }
-  - { name: "B my Lake", site: "https://bmylake.com" }
-  - { name: "Ozora Festival", site: "https://ozorafestival.eu" }
+on:
+  schedule:
+    # Szerda 05:17 UTC = 07:17 nyári / 06:17 téli időszámítás szerint (Budapest)
+    - cron: "17 5 * * 3"
+  workflow_dispatch:        # "Run workflow" gomb – bármikor kézzel is indítható
+    inputs:
+      send_email:
+        description: "Küldjön e-mailt? (nem = csak előnézet készül)"
+        type: choice
+        options: ["igen", "nem"]
+        default: "igen"
 
-  # ── Koncertszervezés, booking, menedzsment ──
-  - { name: "Live Nation", site: "https://www.livenation.hu" }
-  - { name: "Concerto Music", site: "https://concerto.hu" }
-  - { name: "Supermanagement", site: "https://supermanagement.hu" }
-  - { name: "KoncertBooking", site: "https://koncertbooking.com" }
+permissions:
+  contents: write           # a data/seen.json visszaírásához kell
 
-  # ── Helyszínek ──
-  - { name: "Budapest Park", site: "https://budapestpark.hu" }
-  - { name: "A38", site: "https://a38.hu" }
-  - { name: "Akvárium Klub", site: "https://akvariumklub.hu" }
-  - { name: "Dürer Kert", site: "https://durerkert.com" }
-  - { name: "Barba Negra", site: "https://barbanegra.hu" }
-  - { name: "Analog Music Hall", site: "https://analogmusichall.hu" }
-  - { name: "MVM Dome", site: "https://budapestarena.hu" }
-  - { name: "Müpa", site: "https://www.mupa.hu" }
+concurrency:
+  group: allasfigyelo
+  cancel-in-progress: false
 
-  # ── Kiadók, disztribúció ──
-  - { name: "Magneoton", site: "https://magneoton.hu" }
-  - { name: "Gold Record", site: "https://goldrecord.hu" }
-  # A multik globális karrieroldalt használnak – őket LinkedInen keressük:
-  - { name: "Universal Music", site: null }
-  - { name: "Sony Music", site: null }
-  - { name: "Warner Music", site: null }
-  - { name: "Believe", site: null }
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
 
-  # ── Jegyértékesítés, zenei tech ──
-  - { name: "Tixa", site: "https://tixa.hu" }
-  - { name: "Funcode", site: "https://funcode.hu" }
-  - { name: "Eventim", site: "https://www.eventim.hu" }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
 
-  # ── Intézmények, szakmai szervezetek ──
-  - { name: "Petőfi Kulturális Ügynökség", site: null }
-  - { name: "Petőfi Média", site: null }
-  - { name: "Artisjus", site: "https://www.artisjus.hu" }
-  - { name: "MAHASZ", site: "https://www.mahasz.hu" }
-  - { name: "MTVA", site: null }
+      - run: pip install -r requirements.txt
 
-# ─────────────────────────────────────────────────────────────
-#  Portálokon futtatott keresések (LinkedIn, Profession, Dreamjobs).
-#  Minden találat átmegy a zenei szűrőn, úgyhogy általánosabb szó
-#  (pl. rendezvényszervező) is mehet ide.
-# ─────────────────────────────────────────────────────────────
-search_keywords:
-  - zenei
-  - zeneipar
-  - music
-  - fesztivál
-  - festival
-  - koncert
-  - concert
-  - booking agent
-  - artist manager
-  - lemezkiadó
-  - record label
-  - promoter
-  - rendezvényszervező
-  - produkciós menedzser
+      - name: Állások összegyűjtése és e-mail
+        env:
+          BREVO_API_KEY: ${{ (github.event_name == 'schedule' || inputs.send_email == 'igen') && secrets.BREVO_API_KEY || '' }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+        run: python scout.py
 
-# ─────────────────────────────────────────────────────────────
-#  Zenei szűrő: egy portálon talált állás csak akkor kerül be,
-#  ha a címében/cégnevében szerepel valamelyik szó, VAGY a cég
-#  rajta van a fenti listán. Kisbetűvel írd; a szó elejének kell
-#  egyeznie (a "zene" egyezik a "zenei", "zenekar" szóval is).
-# ─────────────────────────────────────────────────────────────
-music_terms:
-  - zene          # zene, zenei, zenekar, zeneipar
-  - könnyűzen
-  - music
-  - fesztivál
-  - festival
-  - koncert
-  - concert
-  - lemezkiadó
-  - record label
-  - a&r
-  - booker
-  - booking agent
-  - artist manag
-  - előadói menedzs
-  - turné
-  - tour manag
-  - hangmérnök
-  - sound engineer
-  - live entertainment
-  - koncertszervez
-  - dj
+      - name: Előnézet csatolása a futáshoz
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: email-elonezet
+          path: preview.html
+          if-no-files-found: ignore
 
-# Ezeket az állásokat akkor is kihagyja, ha zenei cégnél vannak.
-exclude_terms:
-  - pultos
-  - bartender
-  - felszolgáló
-  - waiter
-  - hostess
-  - takarító
-  - cleaner
-  - biztonsági őr
-  - security guard
-  - szakács
-  - konyhai
-  - raktáros
-  - futár
-  - árufeltöltő
-  - pénztáros
-  - diákmunka
-  - önkéntes
-  - volunteer
-  - zenetanár        # zeneiskolai tanári állások
-  - music teacher
-  - zongoratanár
-  - hegedűtanár
-  - gitártanár
-  - énektanár
-  - korrepetitor
-  - orvos
+      - name: Látott hirdetések mentése
+        # Próbafutásnál (e-mail nélkül) nem mentünk, hogy a következő levélben is újként jelenjenek meg
+        if: success() && (github.event_name == 'schedule' || inputs.send_email == 'igen')
+        run: |
+          git config user.name "allasfigyelo-bot"
+          git config user.email "allasfigyelo-bot@users.noreply.github.com"
+          git add data/seen.json
+          git diff --cached --quiet || git commit -m "Látott hirdetések frissítése"
+          git push
