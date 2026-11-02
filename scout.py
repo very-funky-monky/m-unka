@@ -45,26 +45,43 @@ HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en;q=0.8",
 }
 
-# Állásoldalra mutató link felismerése (URL-ben vagy a link szövegében)
+# Állásoldalra mutató link felismerése (URL-ben vagy a link szövegében).
+# Szándékosan szigorú: a "csatlakozz" (pl. Artisjus-tagság, hírlevél) vagy a
+# sima "munkatárs" (csapatoldal) nem elég.
 CAREER_LINK_RE = re.compile(
-    r"karrier|career|állás|allas|jobs?\b|munkatárs|munkatars|csatlakozz|"
-    r"join[\s_-]?us|dolgozz|work[\s_-]?with[\s_-]?us|hiring|álláslehetőség",
+    r"karrier|career|álláslehetőség|állásajánlat|állások|(?<!\w)állás(?!\w)|"
+    r"allasok|allas-?ajanlat|allaslehetoseg|(?<![a-z])allas(?![a-z])|(?<![a-z])jobs?(?![a-z])|"
+    r"nyitott pozíci|open positions|munkatársat keresünk|munkatarsat-keresunk|"
+    r"dolgozz velünk|dolgozz-velunk|work[\s_-]with[\s_-]us|join[\s_-]our[\s_-]team",
     re.I,
 )
 # Ezek nem állásoldalak, csak hasonló szavakat tartalmaznak (csapatoldal, önkéntesség, fellépőknek)
 NOT_CAREER_RE = re.compile(
     r"munkatársaink|munkatarsaink|csapatunk|rólunk|rolunk|about|team|önkéntes|onkentes|"
-    r"volunteer|fellépő|fellepo|artist|zenekar|press|sajtó|sajto",
+    r"volunteer|fellépő|fellepo|artist|zenekar|press|sajtó|sajto|tagság|tagsag|member",
     re.I,
 )
-# Állásnak tűnő linkszöveg az állásoldalon
-JOB_TITLE_RE = re.compile(
+# Valódi állásoldal-e: ilyen szövegnek lennie kell rajta (vagy annak, hogy most nincs nyitott pozíció)
+CAREER_PAGE_TEXT_RE = re.compile(
+    r"pozíci|munkatársat keres|munkatársakat keres|jelentkez|önéletrajz|\bcv\b|elvárás|"
+    r"amit kínálunk|feladatok|apply|requirements|responsibilit|open position|vacanc|"
+    r"nincs (jelenleg )?(nyitott|meghirdetett)|jelenleg nem keres",
+    re.I,
+)
+# Egy állás címe: munkakört jelölő szót kell tartalmaznia. Részleg ("Marketing")
+# vagy hír ("A 2026-os díjszabásokról") ettől nem megy át.
+ROLE_RE = re.compile(
     r"munkatárs|menedzser|manager|koordinátor|coordinator|asszisztens|assistant|"
-    r"vezető|head of|lead|specialista|specialist|referens|producer|booker|"
-    r"szerkesztő|editor|gyakornok|intern|technikus|technician|hangmérnök|"
-    r"engineer|developer|fejlesztő|designer|grafikus|marketing|pr\b|"
-    r"kommunikáció|értékesít|sales|ügyintéző|officer|director|igazgató|"
-    r"keresünk|hiring|pozíció|position|állás",
+    r"vezető|head of|specialista|specialist|referens|producer|booker|"
+    r"szerkesztő|editor|gyakornok|intern(?!ation)|trainee|technikus|technician|hangmérnök|"
+    r"designer|grafikus|ügyintéző|officer|director|igazgató|copywriter|"
+    r"szervező|organi[sz]er|tanácsadó|executive|associate|\(m/f|\(f/m|\(m/w",
+    re.I,
+)
+# Általános linkszövegek – ilyenkor a mellette lévő címsor a pozíció neve
+GENERIC_LINK_RE = re.compile(
+    r"^(bővebben|tovább|tovább olvasom|olvass tovább|részletek|részletesen|megnézem|"
+    r"jelentkezem|jelentkezés|jelentkezz|info|more|read more|details|learn more|apply|apply now)\W*$",
     re.I,
 )
 
@@ -190,8 +207,7 @@ def find_career_pages(home_url: str, soup: BeautifulSoup) -> list[str]:
             continue
         text = clean(a.get_text(" "))
         path = urlparse(href).path
-        strong = re.search(r"karrier|career|jobs|allas|állás", f"{path} {text}", re.I)
-        if not strong and (NOT_CAREER_RE.search(path) or NOT_CAREER_RE.search(text)):
+        if NOT_CAREER_RE.search(path) or NOT_CAREER_RE.search(text):
             continue
         if CAREER_LINK_RE.search(path) or (len(text) < 40 and CAREER_LINK_RE.search(text)):
             n = normalize_url(href)
@@ -202,8 +218,26 @@ def find_career_pages(home_url: str, soup: BeautifulSoup) -> list[str]:
     return found[:3]
 
 
+def is_career_page(soup: BeautifulSoup) -> bool:
+    main = soup.find("main") or soup.body or soup
+    return bool(CAREER_PAGE_TEXT_RE.search(clean(main.get_text(" "))))
+
+
+def heading_near(a) -> str:
+    """Egy "Bővebben"-féle link mellett álló címsor (a pozíció neve)."""
+    box = a
+    for _ in range(4):
+        box = box.parent
+        if box is None:
+            return ""
+        h = box.find(["h1", "h2", "h3", "h4", "h5", "strong", "b"])
+        if h is not None:
+            return clean(h.get_text(" "))
+    return ""
+
+
 def extract_jobs_from_page(page_url: str, soup: BeautifulSoup, nav_links: set[str]) -> list[tuple[str, str]]:
-    for tag in soup(["nav", "header", "footer", "script", "style", "noscript"]):
+    for tag in soup(["nav", "header", "footer", "script", "style", "noscript", "aside"]):
         tag.decompose()
     jobs: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -215,17 +249,20 @@ def extract_jobs_from_page(page_url: str, soup: BeautifulSoup, nav_links: set[st
         if n in nav_links or n == normalize_url(page_url) or n in seen:
             continue
         text = clean(a.get_text(" "))
-        if not (6 <= len(text) <= 140):
+        if GENERIC_LINK_RE.match(text) or not text:
+            text = heading_near(a)
+        if not (6 <= len(text) <= 140) or not ROLE_RE.search(text):
             continue
-        if JOB_TITLE_RE.search(text) or CAREER_LINK_RE.search(urlparse(href).path):
-            seen.add(n)
-            jobs.append((text, href))
+        seen.add(n)
+        jobs.append((text, href))
     # Ha linkek nincsenek, de címsorok igen (pl. egy oldalon felsorolt pozíciók)
     if not jobs:
+        titles: set[str] = set()
         for h in soup.find_all(["h2", "h3", "h4"]):
             text = clean(h.get_text(" "))
-            if 6 <= len(text) <= 140 and JOB_TITLE_RE.search(text):
-                jobs.append((text, page_url))
+            if 6 <= len(text) <= 140 and ROLE_RE.search(text) and text not in titles:
+                titles.add(text)
+                jobs.append((text, f"{page_url}#{quote_plus(text)}"))
     return jobs
 
 
@@ -251,11 +288,23 @@ def scan_company(company: dict, fetcher: Fetcher, flt: Filter, state: dict, repo
         report.statuses.append(SiteStatus(name, "no_page", "nincs állásoldal – portálokon figyeljük", site))
         return
 
-    page = pages[0]
-    try:
-        soup = fetcher.soup(page)
-    except Exception as e:  # noqa: BLE001
-        report.statuses.append(SiteStatus(name, "error", f"az állásoldal nem töltött be ({short_err(e)})", page))
+    # Az első jelöltet fogadjuk el, amelyik tényleg állásoldalnak néz ki
+    # (megadott careers_url-nél nem ellenőrzünk – azt a felhasználó tudja).
+    page, soup, last_err = None, None, None
+    for cand in pages:
+        try:
+            s = fetcher.soup(cand)
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            continue
+        if company.get("careers_url") or is_career_page(s):
+            page, soup = cand, s
+            break
+    if soup is None:
+        if last_err is not None and len(pages) == 1:
+            report.statuses.append(SiteStatus(name, "error", f"az állásoldal nem töltött be ({short_err(last_err)})", pages[0]))
+        else:
+            report.statuses.append(SiteStatus(name, "no_page", "nincs állásoldal – portálokon figyeljük", site))
         return
 
     fp = page_fingerprint(soup)
@@ -264,7 +313,8 @@ def scan_company(company: dict, fetcher: Fetcher, flt: Filter, state: dict, repo
     state["pages"][fp_key] = fp
 
     found = 0
-    for title, url in extract_jobs_from_page(page, soup, nav_links):
+    fp_soup = BeautifulSoup(str(soup), "html.parser")  # az extract módosítja a soupot
+    for title, url in extract_jobs_from_page(page, fp_soup, nav_links):
         if flt.excluded(title):
             continue
         report.jobs.append(Job(title=title, url=url, source=name, company=name))
