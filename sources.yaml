@@ -91,6 +91,11 @@ search_keywords:
 #  ha a címében/cégnevében szerepel valamelyik szó, VAGY a cég
 #  rajta van a fenti listán. Kisbetűvel írd; a szó elejének kell
 #  egyeznie (a "zene" egyezik a "zenei", "zenekar" szóval is).
+#
+#  Szándékosan NINCS itt: booking, booker, promoter, DJ, turné,
+#  hangmérnök, rendezvény – ezek szállodai, transzfer-, áruházi és
+#  céges rendezvényes hirdetésekben is gyakoriak. Az ilyen állás
+#  csak akkor jön át, ha mellette zenei szó vagy listás cég is van.
 # ─────────────────────────────────────────────────────────────
 music_terms:
   - zene          # zene, zenei, zenekar, zeneipar
@@ -102,21 +107,49 @@ music_terms:
   - concert
   - lemezkiadó
   - record label
-  - a&r
-  - booker
-  - booking agent
   - artist manag
   - előadói menedzs
-  - turné
-  - tour manag
-  - hangmérnök
-  - sound engineer
   - live entertainment
-  - koncertszervez
-  - dj
+  - élőzen
 
 # Ezeket az állásokat akkor is kihagyja, ha zenei cégnél vannak.
+# (Ha mégis kellene valamelyik, egyszerűen töröld a sort.)
 exclude_terms:
+  # ── háttérirodai munkakörök (pl. közbeszerzés egy zenei intézménynél) ──
+  - közbeszerz
+  - beszerz
+  - procurement
+  - könyvel
+  - accountant
+  - accounting
+  - pénzügy
+  - finance
+  - controller
+  - kontroller
+  - bérszámfejt
+  - payroll
+  - jogász
+  - jogi
+  - legal
+  - ügyvéd
+  - hr
+  - human resources
+  - toborz
+  - recruit
+  - informatikus
+  - rendszergazda
+  - szoftver
+  - software
+  - developer
+  - it support
+  - karbantart
+  - gondnok
+  - recepci
+  - sofőr
+  - driver
+  - diszpécser
+  - dispatcher
+  # ── vendéglátás, kisegítő munkák ──
   - pultos
   - bartender
   - felszolgáló
